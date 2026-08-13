@@ -206,7 +206,9 @@ The class exposes:
 - `sendEvent(event)` for any supported Realtime client event
 - `sendText(text)` for a text turn followed by `response.create`
 - `setMuted(boolean)`
-- `getConnectionStats()` to inspect the selected ICE path
+- `getConnectionStats()` to inspect the selected ICE path, including whether it
+  is direct or TURN-relayed, candidate protocols, RTT, the Xirsys TURN service
+  host/port, and the relay allocation address when the browser exposes them
 - `sendSignalingMessage(operation, payload, targetPeerId)` when optional Xirsys
   signaling is enabled
 - `disconnect()`
@@ -236,6 +238,13 @@ Normally the browser chooses the best candidate path. A `host` or `srflx` path i
 expected on permissive networks and does not indicate an error. TURN is a
 fallback for restrictive NATs and firewalls.
 
+Open **Connection events** in the demo for a live diagnostic snapshot. A
+`srflx` result is shown as **Direct (STUN-discovered)** because STUN discovers a
+publicly reachable address but does not relay the media. A `relay` result is
+shown as **TURN relay**, along with the selected Xirsys server and service port,
+TURN transport, relay allocation, and round-trip time when those WebRTC stats
+are available in the browser.
+
 To prove relay connectivity:
 
 1. Check **Force TURN relay (diagnostic)** before connecting.
@@ -249,10 +258,14 @@ latency direct path when available.
 
 ## Optional Xirsys WebSocket signaling
 
-Check **Optional Xirsys app WebSocket** to demonstrate Signaling V2. The Node SDK
+Check **Xirsys WebSocket (Optional)** to demonstrate Signaling V2. The Node SDK
 gets a signaling host and a short-lived peer token; the browser connects to
 `wss://.../v2/{token}` and sends JSON user packets. It also sends JSON ping/pong
 heartbeats every 30 seconds.
+
+When enabled, the Connection events panel reports the sanitized WebSocket
+host/port, state, peer ID, and application-message counts. The short-lived
+signaling token and URL path are deliberately omitted from diagnostics.
 
 This side channel is useful for presence, room state, coordination between your
 own browser clients, or out-of-band UI messages. It is not required for a

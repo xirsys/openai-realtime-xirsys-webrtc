@@ -142,6 +142,24 @@
 
               <details>
                 <summary>Connection events</summary>
+                <dl class="connection-diagnostics" aria-label="Connection diagnostics">
+                  <div>
+                    <dt>WebRTC route</dt>
+                    <dd id="diagnostic-route">Not connected</dd>
+                  </div>
+                  <div>
+                    <dt>Selected path</dt>
+                    <dd id="diagnostic-path">No candidate pair selected</dd>
+                  </div>
+                  <div>
+                    <dt>Xirsys TURN</dt>
+                    <dd id="diagnostic-turn">Not in use</dd>
+                  </div>
+                  <div>
+                    <dt>Xirsys WebSocket</dt>
+                    <dd id="diagnostic-websocket">Disabled</dd>
+                  </div>
+                </dl>
                 <div id="event-log" class="event-log" aria-live="polite"></div>
               </details>
             </section>

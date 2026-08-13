@@ -15,12 +15,18 @@ const elements = {
   model: document.querySelector("#model"),
   ice: document.querySelector("#ice-route"),
   signalingState: document.querySelector("#signaling-state"),
+  diagnosticRoute: document.querySelector("#diagnostic-route"),
+  diagnosticPath: document.querySelector("#diagnostic-path"),
+  diagnosticTurn: document.querySelector("#diagnostic-turn"),
+  diagnosticWebSocket: document.querySelector("#diagnostic-websocket"),
   log: document.querySelector("#event-log"),
 };
 
 const client = new RealtimeVoiceClient({ audioElement: elements.audio });
 let isMuted = false;
 let currentStatus = "idle";
+let lastConnectivityFingerprint = "";
+let websocketInfo = createWebSocketInfo(false);
 
 client.addEventListener("status", ({ detail }) => {
   currentStatus = detail.status;
@@ -46,6 +52,7 @@ client.addEventListener("session", ({ detail }) => {
 
 client.addEventListener("ice-state", ({ detail }) => {
   elements.ice.textContent = `ICE ${detail.state}`;
+  log("ice state", detail);
   if (detail.state === "connected" || detail.state === "completed") showStats();
 });
 
@@ -53,10 +60,21 @@ client.addEventListener("peer-state", ({ detail }) => log("peer", detail));
 
 client.addEventListener("signaling-state", ({ detail }) => {
   elements.signalingState.textContent = `WebSocket ${detail.state}`;
+  websocketInfo = { ...websocketInfo, ...detail, enabled: true };
+  renderWebSocketInfo();
+  log("xirsys websocket state", detail);
 });
 
 client.addEventListener("signaling-message", ({ detail }) => {
+  websocketInfo.received += 1;
+  renderWebSocketInfo();
   log("xirsys websocket", detail);
+});
+
+client.addEventListener("signaling-sent", ({ detail }) => {
+  websocketInfo.sent += 1;
+  renderWebSocketInfo();
+  log("xirsys websocket sent", detail);
 });
 
 client.addEventListener("realtime", ({ detail }) => {
@@ -78,6 +96,7 @@ client.addEventListener("error", ({ detail }) => log("error", detail.error.messa
 elements.connect.addEventListener("click", async () => {
   let openaiApiKey = elements.apiKey.value.trim();
   if (!openaiApiKey) return;
+  resetConnectionDiagnostics(elements.signaling.checked);
   elements.connect.disabled = true;
   try {
     const connection = client.connect({
@@ -117,12 +136,72 @@ elements.text.addEventListener("keydown", (event) => {
 });
 
 async function showStats() {
-  const stats = await client.getConnectionStats();
-  if (!stats) return;
-  const roundTrip = Number.isFinite(stats.currentRoundTripTime)
-    ? ` · ${Math.round(stats.currentRoundTripTime * 1_000)} ms RTT`
-    : "";
-  elements.ice.textContent = `${stats.localCandidateType ?? "unknown"} / ${stats.localProtocol ?? "unknown"}${roundTrip}`;
+  try {
+    const stats = await client.getConnectionStats();
+    if (!stats) return;
+    const roundTripMs = Number.isFinite(stats.currentRoundTripTime)
+      ? Math.round(stats.currentRoundTripTime * 1_000)
+      : undefined;
+    const roundTrip = roundTripMs === undefined ? "" : ` · ${roundTripMs} ms RTT`;
+    const protocol = stats.localProtocol?.toUpperCase() ?? "unknown protocol";
+
+    elements.ice.textContent = `${stats.routeLabel} · ${protocol}${roundTrip}`;
+    elements.diagnosticRoute.textContent = stats.routeLabel;
+    elements.diagnosticPath.textContent = [
+      `${stats.localCandidateType ?? "unknown"} candidate`,
+      protocol,
+      stats.relayProtocol ? `TURN over ${stats.relayProtocol.toUpperCase()}` : undefined,
+      roundTripMs === undefined ? undefined : `${roundTripMs} ms RTT`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    const turnEndpoint = stats.turnServer
+      ? formatHostPort(stats.turnServer.host, stats.turnServer.port)
+      : undefined;
+    const relayAllocation =
+      stats.route === "turn" && stats.localAddress
+        ? formatHostPort(stats.localAddress, stats.localPort)
+        : undefined;
+    elements.diagnosticTurn.textContent =
+      stats.route === "turn"
+        ? [
+            turnEndpoint ? `server ${turnEndpoint}` : "server unavailable",
+            stats.turnServer?.transport
+              ? `transport ${stats.turnServer.transport.toUpperCase()}`
+              : undefined,
+            relayAllocation ? `relay ${relayAllocation}` : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "Not in use — selected path is direct";
+
+    const connectivity = {
+      route: stats.routeLabel,
+      candidateType: stats.localCandidateType,
+      protocol: stats.localProtocol,
+      rttMs: roundTripMs,
+      ...(stats.route === "turn"
+        ? {
+            xirsysTurnServer: stats.turnServer?.host,
+            xirsysTurnPort: stats.turnServer?.port,
+            turnTransport: stats.turnServer?.transport,
+            relayAddress: stats.localAddress,
+            relayPort: stats.localPort,
+          }
+        : {}),
+    };
+    const fingerprint = JSON.stringify({
+      ...connectivity,
+      rttMs: undefined,
+    });
+    if (fingerprint !== lastConnectivityFingerprint) {
+      lastConnectivityFingerprint = fingerprint;
+      log("webrtc connectivity", removeUndefined(connectivity));
+    }
+  } catch (error) {
+    log("stats unavailable", error instanceof Error ? error.message : String(error));
+  }
 }
 
 function sendText() {
@@ -142,6 +221,53 @@ function syncConnectAvailability() {
   elements.connect.disabled = currentStatus !== "idle" || !elements.apiKey.value.trim();
 }
 
+function resetConnectionDiagnostics(signalingEnabled) {
+  lastConnectivityFingerprint = "";
+  elements.diagnosticRoute.textContent = "Waiting for selected ICE pair";
+  elements.diagnosticPath.textContent = "Gathering candidates";
+  elements.diagnosticTurn.textContent = "Waiting for selected path";
+  websocketInfo = createWebSocketInfo(signalingEnabled);
+  elements.signalingState.textContent = signalingEnabled
+    ? "WebSocket requested"
+    : "WebSocket off";
+  renderWebSocketInfo();
+}
+
+function createWebSocketInfo(enabled) {
+  return {
+    enabled,
+    state: enabled ? "requesting credentials" : "disabled",
+    sent: 0,
+    received: 0,
+  };
+}
+
+function renderWebSocketInfo() {
+  if (!websocketInfo.enabled) {
+    elements.diagnosticWebSocket.textContent = "Disabled";
+    return;
+  }
+
+  elements.diagnosticWebSocket.textContent = [
+    websocketInfo.state,
+    websocketInfo.endpoint,
+    websocketInfo.peerId ? `peer ${websocketInfo.peerId}` : undefined,
+    `app messages ↑${websocketInfo.sent} ↓${websocketInfo.received}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function formatHostPort(host, port) {
+  if (!host) return undefined;
+  const safeHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  return port ? `${safeHost}:${port}` : safeHost;
+}
+
+function removeUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
+}
+
 function log(label, value) {
   const line = document.createElement("div");
   const time = new Date().toLocaleTimeString();
@@ -151,3 +277,4 @@ function log(label, value) {
 
 setStatus("idle");
 syncConnectAvailability();
+resetConnectionDiagnostics(false);

@@ -239,6 +239,30 @@ audio { width: 100%; height: 36px; margin: 20px 0; opacity: .7; }
 
 details { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 summary { color: var(--muted); font-family: "DM Sans", system-ui, sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; }
+.connection-diagnostics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 14px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--line);
+}
+.connection-diagnostics div { min-width: 0; padding: 10px; background: var(--soft); }
+.connection-diagnostics dt {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.connection-diagnostics dd {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
 .event-log { max-height: 220px; overflow: auto; margin-top: 12px; }
 .event-log div { padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--muted); font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 
@@ -303,6 +327,7 @@ footer { padding: 40px 0; background: var(--soft); }
   .transport-grid article:last-child { grid-column: auto; }
   .actions .button { flex: 1 1 auto; }
   .text-turn { grid-template-columns: 1fr; }
+  .connection-diagnostics { grid-template-columns: 1fr; }
   .section-head h2 { font-size: 30px; }
   .footer-inner { grid-template-columns: 1fr; }
   .source-panel h2 { font-size: 30px; }
