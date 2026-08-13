@@ -188,32 +188,7 @@ export class RealtimeVoiceClient extends EventTarget {
   async getConnectionStats() {
     if (!this.#peerConnection) return undefined;
     const reports = await this.#peerConnection.getStats();
-    let selectedPair;
-
-    for (const report of reports.values()) {
-      if (report.type === "transport" && report.selectedCandidatePairId) {
-        selectedPair = reports.get(report.selectedCandidatePairId);
-        break;
-      }
-      if (
-        report.type === "candidate-pair" &&
-        report.state === "succeeded" &&
-        (report.nominated || report.selected)
-      ) {
-        selectedPair = report;
-      }
-    }
-
-    if (!selectedPair) return undefined;
-    const local = reports.get(selectedPair.localCandidateId);
-    const remote = reports.get(selectedPair.remoteCandidateId);
-    return {
-      currentRoundTripTime: selectedPair.currentRoundTripTime,
-      localCandidateType: local?.candidateType,
-      localProtocol: local?.protocol,
-      remoteCandidateType: remote?.candidateType,
-      remoteProtocol: remote?.protocol,
-    };
+    return summarizeIceConnection(reports);
   }
 
   disconnect() {
@@ -281,6 +256,9 @@ export class RealtimeVoiceClient extends EventTarget {
     this.#signaling.addEventListener("message", (event) => {
       this.dispatchEvent(new CustomEvent("signaling-message", { detail: event.detail }));
     });
+    this.#signaling.addEventListener("sent", (event) => {
+      this.dispatchEvent(new CustomEvent("signaling-sent", { detail: event.detail }));
+    });
     this.#signaling.addEventListener("error", (event) => {
       this.#emitError(event.detail.error);
     });
@@ -301,6 +279,7 @@ export class XirsysSignalingClient extends EventTarget {
   #socket;
   #peerId;
   #heartbeat;
+  #connectionInfo;
 
   async connect(credentials) {
     if (!credentials?.url || !credentials?.peerId) {
@@ -308,30 +287,17 @@ export class XirsysSignalingClient extends EventTarget {
     }
 
     this.#peerId = credentials.peerId;
+    this.#connectionInfo = describeXirsysSignalingEndpoint(
+      credentials.url,
+      credentials.peerId,
+    );
+    const connectionInfo = this.#connectionInfo;
+    this.dispatchEvent(
+      new CustomEvent("state", {
+        detail: { state: "connecting", ...this.#connectionInfo },
+      }),
+    );
     this.#socket = new WebSocket(credentials.url);
-    await new Promise((resolve, reject) => {
-      const onOpen = () => {
-        cleanup();
-        this.#heartbeat = window.setInterval(() => {
-          if (this.#socket?.readyState === WebSocket.OPEN) {
-            this.#socket.send(JSON.stringify({ t: "ping", ts: Date.now() }));
-          }
-        }, 30_000);
-        this.dispatchEvent(new CustomEvent("state", { detail: { state: "open" } }));
-        resolve();
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error("Could not connect to Xirsys signaling"));
-      };
-      const cleanup = () => {
-        this.#socket.removeEventListener("open", onOpen);
-        this.#socket.removeEventListener("error", onError);
-      };
-      this.#socket.addEventListener("open", onOpen, { once: true });
-      this.#socket.addEventListener("error", onError, { once: true });
-    });
-
     this.#socket.addEventListener("message", (event) => {
       try {
         const packet = JSON.parse(event.data);
@@ -347,7 +313,43 @@ export class XirsysSignalingClient extends EventTarget {
       }
     });
     this.#socket.addEventListener("close", () => {
-      this.dispatchEvent(new CustomEvent("state", { detail: { state: "closed" } }));
+      this.dispatchEvent(
+        new CustomEvent("state", {
+          detail: { state: "closed", ...connectionInfo },
+        }),
+      );
+    });
+
+    await new Promise((resolve, reject) => {
+      const onOpen = () => {
+        cleanup();
+        this.#heartbeat = window.setInterval(() => {
+          if (this.#socket?.readyState === WebSocket.OPEN) {
+            this.#socket.send(JSON.stringify({ t: "ping", ts: Date.now() }));
+          }
+        }, 30_000);
+        this.dispatchEvent(
+          new CustomEvent("state", {
+            detail: { state: "open", ...connectionInfo },
+          }),
+        );
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        this.dispatchEvent(
+          new CustomEvent("state", {
+            detail: { state: "failed", ...connectionInfo },
+          }),
+        );
+        reject(new Error("Could not connect to Xirsys signaling"));
+      };
+      const cleanup = () => {
+        this.#socket.removeEventListener("open", onOpen);
+        this.#socket.removeEventListener("error", onError);
+      };
+      this.#socket.addEventListener("open", onOpen, { once: true });
+      this.#socket.addEventListener("error", onError, { once: true });
     });
   }
 
@@ -366,6 +368,14 @@ export class XirsysSignalingClient extends EventTarget {
         p: payload,
       }),
     );
+    this.dispatchEvent(
+      new CustomEvent("sent", {
+        detail: {
+          operation,
+          targetPeerId: targetPeerId ?? "broadcast",
+        },
+      }),
+    );
   }
 
   disconnect() {
@@ -373,6 +383,147 @@ export class XirsysSignalingClient extends EventTarget {
     this.#heartbeat = undefined;
     this.#socket?.close();
     this.#socket = undefined;
+    this.#connectionInfo = undefined;
+  }
+}
+
+/**
+ * Convert the browser's selected ICE candidate-pair stats into a stable,
+ * display-friendly object. A server-reflexive candidate is a direct path
+ * discovered with STUN; only a relay candidate means media is using TURN.
+ */
+export function summarizeIceConnection(reports) {
+  let selectedPair;
+
+  for (const report of reports.values()) {
+    if (report.type === "transport" && report.selectedCandidatePairId) {
+      const transportPair = reports.get(report.selectedCandidatePairId);
+      if (transportPair) {
+        selectedPair = transportPair;
+        break;
+      }
+    }
+    if (
+      report.type === "candidate-pair" &&
+      report.state === "succeeded" &&
+      (report.nominated || report.selected)
+    ) {
+      selectedPair = report;
+    }
+  }
+
+  if (!selectedPair) return undefined;
+  const local = reports.get(selectedPair.localCandidateId);
+  const remote = reports.get(selectedPair.remoteCandidateId);
+  const localCandidateType = local?.candidateType;
+  const route = describeIceRoute(localCandidateType);
+  const turnServer =
+    localCandidateType === "relay" ? describeTurnServer(local) : undefined;
+
+  return {
+    route: route.kind,
+    routeLabel: route.label,
+    currentRoundTripTime: selectedPair.currentRoundTripTime,
+    bytesSent: selectedPair.bytesSent,
+    bytesReceived: selectedPair.bytesReceived,
+    localCandidateType,
+    localProtocol: local?.protocol,
+    localAddress: candidateAddress(local),
+    localPort: local?.port,
+    relayProtocol: local?.relayProtocol,
+    remoteCandidateType: remote?.candidateType,
+    remoteProtocol: remote?.protocol,
+    turnServer,
+  };
+}
+
+function describeIceRoute(candidateType) {
+  switch (candidateType) {
+    case "relay":
+      return { kind: "turn", label: "TURN relay" };
+    case "srflx":
+      return { kind: "stun", label: "Direct (STUN-discovered)" };
+    case "prflx":
+      return { kind: "direct", label: "Direct (peer-reflexive)" };
+    case "host":
+      return { kind: "direct", label: "Direct (host candidate)" };
+    default:
+      return { kind: "unknown", label: "Unknown ICE path" };
+  }
+}
+
+function describeTurnServer(candidate) {
+  const parsed = parseIceServerUrl(candidate?.url);
+  const host = parsed?.host ?? candidateAddress(candidate);
+  const port = parsed?.port ?? candidate?.port;
+  if (!host && !port) return undefined;
+
+  return {
+    host,
+    port,
+    transport: parsed?.transport ?? candidate?.relayProtocol ?? candidate?.protocol,
+    scheme: parsed?.scheme,
+  };
+}
+
+function parseIceServerUrl(value) {
+  if (typeof value !== "string") return undefined;
+  const match = value.match(/^(stun|stuns|turn|turns):(?:\/\/)?(.+)$/i);
+  if (!match) return undefined;
+
+  const scheme = match[1].toLowerCase();
+  const [authorityWithCredentials, query = ""] = match[2].split("?", 2);
+  const authority = authorityWithCredentials.slice(
+    authorityWithCredentials.lastIndexOf("@") + 1,
+  );
+  let host;
+  let explicitPort;
+
+  if (authority.startsWith("[")) {
+    const closingBracket = authority.indexOf("]");
+    if (closingBracket > 0) {
+      host = authority.slice(1, closingBracket);
+      explicitPort = authority.slice(closingBracket + 1).replace(/^:/, "");
+    }
+  } else {
+    const portMatch = authority.match(/:(\d+)$/);
+    explicitPort = portMatch?.[1];
+    host = portMatch ? authority.slice(0, -portMatch[0].length) : authority;
+  }
+
+  if (!host) return undefined;
+  const transport = new URLSearchParams(query).get("transport") ?? undefined;
+  return {
+    scheme,
+    host,
+    port: explicitPort ? Number(explicitPort) : scheme.endsWith("s") ? 5349 : 3478,
+    transport,
+  };
+}
+
+function candidateAddress(candidate) {
+  return candidate?.address ?? candidate?.ip;
+}
+
+/** Return Xirsys WebSocket connection details without its token-bearing path. */
+export function describeXirsysSignalingEndpoint(value, peerId) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "wss:" && url.protocol !== "ws:") return { peerId };
+    const port = url.port ? Number(url.port) : url.protocol === "wss:" ? 443 : 80;
+    const host =
+      url.hostname.includes(":") && !url.hostname.startsWith("[")
+        ? `[${url.hostname}]`
+        : url.hostname;
+    return {
+      endpoint: `${url.protocol}//${host}:${port}`,
+      host: url.hostname,
+      port,
+      protocol: url.protocol.slice(0, -1),
+      peerId,
+    };
+  } catch {
+    return { peerId };
   }
 }
 
