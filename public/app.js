@@ -148,7 +148,9 @@ async function showStats() {
     elements.ice.textContent = `${stats.routeLabel} · ${protocol}${roundTrip}`;
     elements.diagnosticRoute.textContent = stats.routeLabel;
     elements.diagnosticPath.textContent = [
-      `${stats.localCandidateType ?? "unknown"} candidate`,
+      stats.relayEnforced
+        ? "relay-only policy enforced"
+        : `${stats.localCandidateType ?? "unknown"} candidate`,
       protocol,
       stats.relayProtocol ? `TURN over ${stats.relayProtocol.toUpperCase()}` : undefined,
       roundTripMs === undefined ? undefined : `${roundTripMs} ms RTT`,
@@ -174,11 +176,12 @@ async function showStats() {
           ]
             .filter(Boolean)
             .join(" · ")
-        : "Not in use — selected path is direct";
+        : "STUN connectivity";
 
     const connectivity = {
       route: stats.routeLabel,
       candidateType: stats.localCandidateType,
+      relayEnforced: stats.relayEnforced,
       protocol: stats.localProtocol,
       rttMs: roundTripMs,
       ...(stats.route === "turn"

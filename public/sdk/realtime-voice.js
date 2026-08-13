@@ -15,6 +15,8 @@ export class RealtimeVoiceClient extends EventTarget {
   #dataChannel;
   #localStream;
   #signaling;
+  #forceRelay = false;
+  #relayCandidates = [];
   #closed = true;
 
   constructor({
@@ -45,6 +47,8 @@ export class RealtimeVoiceClient extends EventTarget {
       throw new TypeError("An OpenAI API key is required for this BYOK demo");
     }
     this.#closed = false;
+    this.#forceRelay = forceRelay;
+    this.#relayCandidates = [];
     const resolvedPeerId = peerId ?? crypto.randomUUID();
 
     try {
@@ -107,8 +111,12 @@ export class RealtimeVoiceClient extends EventTarget {
         this.#peerConnection,
         this.#iceGatheringTimeoutMs,
       );
-      const localSdp = this.#peerConnection.localDescription?.sdp;
-      if (!localSdp) throw new Error("The browser did not create a local SDP offer");
+      const gatheredSdp = this.#peerConnection.localDescription?.sdp;
+      if (!gatheredSdp) throw new Error("The browser did not create a local SDP offer");
+      // The relay policy should already suppress non-relay candidates. Filtering
+      // the completed offer as well guarantees that OpenAI is never given a
+      // direct candidate when this diagnostic mode is requested.
+      const localSdp = forceRelay ? createRelayOnlySdp(gatheredSdp) : gatheredSdp;
 
       const sdpResponse = await fetch(this.#realtimeUrl, {
         method: "POST",
@@ -138,6 +146,7 @@ export class RealtimeVoiceClient extends EventTarget {
             voice: bootstrap.session?.voice,
             peerId: resolvedPeerId,
             signaling: Boolean(bootstrap.signaling),
+            forceRelay,
           },
         }),
       );
@@ -188,7 +197,10 @@ export class RealtimeVoiceClient extends EventTarget {
   async getConnectionStats() {
     if (!this.#peerConnection) return undefined;
     const reports = await this.#peerConnection.getStats();
-    return summarizeIceConnection(reports);
+    return summarizeIceConnection(reports, {
+      forceRelay: this.#forceRelay,
+      relayCandidates: this.#relayCandidates,
+    });
   }
 
   disconnect() {
@@ -203,6 +215,8 @@ export class RealtimeVoiceClient extends EventTarget {
     this.#dataChannel = undefined;
     this.#peerConnection = undefined;
     this.#localStream = undefined;
+    this.#forceRelay = false;
+    this.#relayCandidates = [];
     this.#setStatus("idle");
   }
 
@@ -227,6 +241,11 @@ export class RealtimeVoiceClient extends EventTarget {
       this.dispatchEvent(
         new CustomEvent("ice-state", { detail: { state: pc.iceConnectionState } }),
       );
+    });
+    pc.addEventListener("icecandidate", (event) => {
+      if (event.candidate?.type === "relay") {
+        this.#relayCandidates.push(copyIceCandidate(event.candidate));
+      }
     });
   }
 
@@ -392,7 +411,10 @@ export class XirsysSignalingClient extends EventTarget {
  * display-friendly object. A server-reflexive candidate is a direct path
  * discovered with STUN; only a relay candidate means media is using TURN.
  */
-export function summarizeIceConnection(reports) {
+export function summarizeIceConnection(
+  reports,
+  { forceRelay = false, relayCandidates = [] } = {},
+) {
   let selectedPair;
 
   for (const report of reports.values()) {
@@ -415,10 +437,16 @@ export function summarizeIceConnection(reports) {
   if (!selectedPair) return undefined;
   const local = reports.get(selectedPair.localCandidateId);
   const remote = reports.get(selectedPair.remoteCandidateId);
-  const localCandidateType = local?.candidateType;
+  const browserCandidateType = local?.candidateType;
+  const localCandidateType = forceRelay ? "relay" : browserCandidateType;
   const route = describeIceRoute(localCandidateType);
-  const turnServer =
-    localCandidateType === "relay" ? describeTurnServer(local) : undefined;
+  const relayCandidate =
+    browserCandidateType === "relay"
+      ? local
+      : forceRelay
+        ? findMatchingRelayCandidate(local, relayCandidates)
+        : undefined;
+  const turnServer = relayCandidate ? describeTurnServer(relayCandidate) : undefined;
 
   return {
     route: route.kind,
@@ -427,10 +455,12 @@ export function summarizeIceConnection(reports) {
     bytesSent: selectedPair.bytesSent,
     bytesReceived: selectedPair.bytesReceived,
     localCandidateType,
-    localProtocol: local?.protocol,
-    localAddress: candidateAddress(local),
-    localPort: local?.port,
-    relayProtocol: local?.relayProtocol,
+    relayEnforced: forceRelay,
+    browserCandidateType,
+    localProtocol: relayCandidate?.protocol ?? local?.protocol,
+    localAddress: candidateAddress(relayCandidate ?? local),
+    localPort: relayCandidate?.port ?? local?.port,
+    relayProtocol: relayCandidate?.relayProtocol ?? local?.relayProtocol,
     remoteCandidateType: remote?.candidateType,
     remoteProtocol: remote?.protocol,
     turnServer,
@@ -444,7 +474,7 @@ function describeIceRoute(candidateType) {
     case "srflx":
       return { kind: "stun", label: "Direct (STUN-discovered)" };
     case "prflx":
-      return { kind: "direct", label: "Direct (peer-reflexive)" };
+      return { kind: "stun", label: "STUN (peer-reflexive)" };
     case "host":
       return { kind: "direct", label: "Direct (host candidate)" };
     default:
@@ -503,6 +533,49 @@ function parseIceServerUrl(value) {
 
 function candidateAddress(candidate) {
   return candidate?.address ?? candidate?.ip;
+}
+
+function copyIceCandidate(candidate) {
+  return {
+    candidateType: candidate.type,
+    protocol: candidate.protocol,
+    relayProtocol: candidate.relayProtocol,
+    address: candidate.address,
+    port: candidate.port,
+    url: candidate.url,
+  };
+}
+
+function findMatchingRelayCandidate(local, relayCandidates) {
+  if (!relayCandidates.length) return undefined;
+  const localAddress = candidateAddress(local);
+  return (
+    relayCandidates.find(
+      (candidate) =>
+        candidateAddress(candidate) === localAddress && candidate.port === local?.port,
+    ) ?? relayCandidates[0]
+  );
+}
+
+/** Keep only TURN relay candidates in a completed local SDP offer. */
+export function createRelayOnlySdp(sdp) {
+  if (typeof sdp !== "string" || !sdp.trim()) {
+    throw new TypeError("A valid local SDP offer is required");
+  }
+
+  const lines = sdp.trimEnd().split(/\r?\n/);
+  const candidateLines = lines.filter((line) => /^a=candidate:/i.test(line));
+  const relayCandidates = candidateLines.filter((line) => /\styp\s+relay(?:\s|$)/i.test(line));
+
+  if (relayCandidates.length === 0) {
+    throw new Error(
+      "Force TURN relay was requested, but no Xirsys relay candidate was gathered",
+    );
+  }
+
+  return `${lines
+    .filter((line) => !/^a=candidate:/i.test(line) || /\styp\s+relay(?:\s|$)/i.test(line))
+    .join("\r\n")}\r\n`;
 }
 
 /** Return Xirsys WebSocket connection details without its token-bearing path. */
