@@ -8,18 +8,31 @@
       content="Xirsys tutorials for WebRTC, TURN, realtime media, and voice agents"
     />
     <title>Xirsys Tutorials</title>
+    <link rel="icon" type="image/svg+xml" href="./xirsys-wordmark-black.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <nav aria-label="Main navigation">
-      <a class="brand" href="https://xirsys.com" aria-label="Xirsys home">
-        <span class="brand-mark" aria-hidden="true">ϟ</span>
-        <span>XIRSYS</span>
-      </a>
-      <div class="nav-links">
-        <a href="https://docs.xirsys.com">Documentation</a>
-        <a href="https://github.com/xirsys">GitHub</a>
-        <a class="button small" href="https://dashboard.xirsys.com">Dashboard</a>
+    <nav class="nav" aria-label="Main navigation">
+      <div class="nav-inner">
+        <a class="brand" href="https://xirsys.com" aria-label="Xirsys home">
+          <img src="./xirsys-wordmark-black.svg" alt="Xirsys" />
+        </a>
+        <div class="nav-links">
+          <a href="https://xirsys.com/turn-server-cloud">TURN Cloud</a>
+          <a href="https://xirsys.com/pricing">Pricing</a>
+          <a href="https://docs.xirsys.com">Documentation</a>
+          <a href="https://github.com/xirsys">GitHub</a>
+        </div>
+        <div class="nav-actions">
+          <a class="login" href="https://dashboard.xirsys.com">Log in</a>
+          <a class="button" href="https://dashboard.xirsys.com/signup">Get started</a>
+        </div>
       </div>
     </nav>
 
@@ -39,7 +52,7 @@
           <span>1 tutorial</span>
         </div>
 
-        <article class="tutorial-card">
+        <article class="tutorial-card card">
           <div class="card-number">01</div>
           <div class="card-content">
             <p class="eyebrow">OpenAI · WebRTC · Voice</p>
