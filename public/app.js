@@ -221,11 +221,17 @@ function syncConnectAvailability() {
   elements.connect.disabled = currentStatus !== "idle" || !elements.apiKey.value.trim();
 }
 
-function resetConnectionDiagnostics(signalingEnabled) {
+function resetConnectionDiagnostics(signalingEnabled, pending = true) {
   lastConnectivityFingerprint = "";
-  elements.diagnosticRoute.textContent = "Waiting for selected ICE pair";
-  elements.diagnosticPath.textContent = "Gathering candidates";
-  elements.diagnosticTurn.textContent = "Waiting for selected path";
+  elements.diagnosticRoute.textContent = pending
+    ? "Waiting for selected ICE pair"
+    : "Not connected";
+  elements.diagnosticPath.textContent = pending
+    ? "Gathering candidates"
+    : "No candidate pair selected";
+  elements.diagnosticTurn.textContent = pending
+    ? "Waiting for selected path"
+    : "Not in use";
   websocketInfo = createWebSocketInfo(signalingEnabled);
   elements.signalingState.textContent = signalingEnabled
     ? "WebSocket requested"
@@ -277,4 +283,4 @@ function log(label, value) {
 
 setStatus("idle");
 syncConnectAvailability();
-resetConnectionDiagnostics(false);
+resetConnectionDiagnostics(false, false);
