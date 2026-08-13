@@ -312,4 +312,4 @@ test/                        mocked provider-client tests
 
 ## License
 
-[MIT](./LICENSE) © 2026 Xirsys, Inc.
+[MIT](./LICENSE) © 2026 Xirsys LLC
