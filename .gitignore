@@ -3,5 +3,5 @@ dist/
 .env
 .DS_Store
 *.log
-docs/NEW_TUTORIAL_HANDOFF.md
+docs/
 directory/
