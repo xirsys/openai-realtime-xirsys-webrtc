@@ -247,7 +247,10 @@ are available in the browser.
 
 To prove relay connectivity:
 
-1. Check **Force TURN relay (diagnostic)** before connecting.
+1. Check **Force TURN relay (diagnostic)** before connecting. The SDK sets the
+   peer connection's ICE policy to `relay`, removes every non-relay candidate
+   from the completed SDP offer, and stops with an error if no Xirsys relay
+   candidate was gathered.
 2. Connect the session.
 3. Confirm the UI reports `relay` as the local candidate type.
 4. Test again on the actual mobile, corporate, or restricted network you need to
