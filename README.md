@@ -9,7 +9,7 @@ This tutorial intentionally does not use OpenAI's Realtime WebSocket transport.
 
 Public repository: [github.com/xirsys/openai-realtime-xirsys-webrtc](https://github.com/xirsys/openai-realtime-xirsys-webrtc)
 
-Live demo: [demo.xirsys.com](https://demo.xirsys.com)
+Live demo: [demo.xirsys.com/openai-realtime-voice](https://demo.xirsys.com/openai-realtime-voice/)
 
 ## Get the source
 
@@ -186,7 +186,7 @@ before enabling this behind a proxy.
 ### Browser: connect and send events
 
 ```js
-import { RealtimeVoiceClient } from "/sdk/realtime-voice.js";
+import { RealtimeVoiceClient } from "./sdk/realtime-voice.js";
 
 const client = new RealtimeVoiceClient({
   audioElement: document.querySelector("audio"),

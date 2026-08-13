@@ -18,7 +18,7 @@ export class RealtimeVoiceClient extends EventTarget {
   #closed = true;
 
   constructor({
-    bootstrapUrl = "/api/bootstrap",
+    bootstrapUrl = "./api/bootstrap",
     realtimeUrl = DEFAULT_REALTIME_URL,
     audioElement = new Audio(),
     iceGatheringTimeoutMs = 8_000,
