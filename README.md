@@ -9,6 +9,8 @@ This tutorial intentionally does not use OpenAI's Realtime WebSocket transport.
 
 Public repository: [github.com/xirsys/openai-realtime-xirsys-webrtc](https://github.com/xirsys/openai-realtime-xirsys-webrtc)
 
+Live demo: [demo.xirsys.com](https://demo.xirsys.com)
+
 ## Get the source
 
 ```bash
