@@ -7,6 +7,8 @@ const elements = {
   mute: document.querySelector("#mute"),
   send: document.querySelector("#send"),
   text: document.querySelector("#text-message"),
+  apiKey: document.querySelector("#openai-api-key"),
+  toggleApiKey: document.querySelector("#toggle-api-key"),
   forceRelay: document.querySelector("#force-relay"),
   signaling: document.querySelector("#use-signaling"),
   status: document.querySelector("#status"),
@@ -18,11 +20,13 @@ const elements = {
 
 const client = new RealtimeVoiceClient({ audioElement: elements.audio });
 let isMuted = false;
+let currentStatus = "idle";
 
 client.addEventListener("status", ({ detail }) => {
+  currentStatus = detail.status;
   setStatus(detail.status);
   const connected = detail.status === "connected";
-  elements.connect.disabled = detail.status !== "idle";
+  syncConnectAvailability();
   elements.disconnect.disabled = detail.status === "idle";
   elements.mute.disabled = !connected;
   elements.send.disabled = !connected;
@@ -72,15 +76,31 @@ client.addEventListener("realtime", ({ detail }) => {
 client.addEventListener("error", ({ detail }) => log("error", detail.error.message));
 
 elements.connect.addEventListener("click", async () => {
+  let openaiApiKey = elements.apiKey.value.trim();
+  if (!openaiApiKey) return;
   elements.connect.disabled = true;
   try {
-    await client.connect({
+    const connection = client.connect({
+      openaiApiKey,
       forceRelay: elements.forceRelay.checked,
       includeSignaling: elements.signaling.checked,
     });
+    elements.apiKey.value = "";
+    openaiApiKey = "";
+    syncConnectAvailability();
+    await connection;
   } catch (error) {
     log("connect failed", error.message);
   }
+});
+
+elements.apiKey.addEventListener("input", syncConnectAvailability);
+elements.apiKey.addEventListener("paste", () => window.setTimeout(syncConnectAvailability));
+elements.toggleApiKey.addEventListener("click", () => {
+  const reveal = elements.apiKey.type === "password";
+  elements.apiKey.type = reveal ? "text" : "password";
+  elements.toggleApiKey.textContent = reveal ? "Hide" : "Show";
+  elements.toggleApiKey.setAttribute("aria-label", `${reveal ? "Hide" : "Show"} API key`);
 });
 
 elements.disconnect.addEventListener("click", () => client.disconnect());
@@ -118,6 +138,10 @@ function setStatus(status) {
   elements.status.dataset.state = status;
 }
 
+function syncConnectAvailability() {
+  elements.connect.disabled = currentStatus !== "idle" || !elements.apiKey.value.trim();
+}
+
 function log(label, value) {
   const line = document.createElement("div");
   const time = new Date().toLocaleTimeString();
@@ -126,3 +150,4 @@ function log(label, value) {
 }
 
 setStatus("idle");
+syncConnectAvailability();

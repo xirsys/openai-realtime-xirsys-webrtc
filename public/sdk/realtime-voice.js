@@ -39,8 +39,11 @@ export class RealtimeVoiceClient extends EventTarget {
     return this.#localStream?.getAudioTracks().every((track) => !track.enabled) ?? false;
   }
 
-  async connect({ forceRelay = false, includeSignaling = false, peerId } = {}) {
+  async connect({ openaiApiKey, forceRelay = false, includeSignaling = false, peerId } = {}) {
     if (!this.#closed) throw new Error("A Realtime session is already active");
+    if (typeof openaiApiKey !== "string" || !openaiApiKey.startsWith("sk-")) {
+      throw new TypeError("An OpenAI API key is required for this BYOK demo");
+    }
     this.#closed = false;
     const resolvedPeerId = peerId ?? crypto.randomUUID();
 
@@ -56,11 +59,23 @@ export class RealtimeVoiceClient extends EventTarget {
       });
 
       this.#setStatus("fetching-credentials");
-      const bootstrap = await fetchJson(this.#bootstrapUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ includeSignaling, peerId: resolvedPeerId }),
+      let requestBody = JSON.stringify({
+        openaiApiKey,
+        includeSignaling,
+        peerId: resolvedPeerId,
       });
+      let bootstrap;
+      try {
+        bootstrap = await fetchJson(this.#bootstrapUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+        });
+      } finally {
+        // Do not retain the tester's standard key after the one-time exchange.
+        openaiApiKey = "";
+        requestBody = "";
+      }
       assertBootstrap(bootstrap);
 
       this.#peerConnection = new RTCPeerConnection({

@@ -35,67 +35,69 @@ app.get("/api/health", (_request, response) => {
   response.json({ ok: true });
 });
 
-app.post("/api/bootstrap", enforcePublicOrigin, bootstrapRateLimit, async (request, response, next) => {
-  try {
-    const { openai, xirsys } = createProviderClients();
-    const includeSignaling = request.body?.includeSignaling === true;
-    const peerId = request.body?.peerId;
+app.post(
+  "/api/bootstrap",
+  disableCredentialCaching,
+  enforcePublicOrigin,
+  bootstrapRateLimit,
+  async (request, response, next) => {
+    try {
+      const openaiApiKey = readOpenAIApiKey(request);
+      const openai = new OpenAIRealtimeClient({ apiKey: openaiApiKey });
+      const xirsys = createXirsysClient();
+      const includeSignaling = request.body?.includeSignaling === true;
+      const peerId = request.body?.peerId;
 
-    if (includeSignaling && typeof peerId !== "string") {
-      response.status(400).json({ error: "peerId is required when signaling is enabled" });
-      return;
-    }
+      if (includeSignaling && typeof peerId !== "string") {
+        response.status(400).json({ error: "peerId is required when signaling is enabled" });
+        return;
+      }
 
-    const session: RealtimeSessionConfig = {
-      type: "realtime",
-      model: process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-2.1",
-      instructions:
-        process.env.OPENAI_REALTIME_INSTRUCTIONS ??
-        "You are a concise, friendly voice assistant. Answer naturally and briefly.",
-      audio: {
-        output: {
-          voice: process.env.OPENAI_REALTIME_VOICE ?? "marin",
+      const session: RealtimeSessionConfig = {
+        type: "realtime",
+        model: process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-2.1",
+        instructions:
+          process.env.OPENAI_REALTIME_INSTRUCTIONS ??
+          "You are a concise, friendly voice assistant. Answer naturally and briefly.",
+        audio: {
+          output: {
+            voice: process.env.OPENAI_REALTIME_VOICE ?? "marin",
+          },
         },
-      },
-    };
+      };
 
-    const trustedPublicIp =
-      process.env.XIRSYS_GEO === "true" ? getTrustedPublicIp(request) : undefined;
-    const iceTtl = parseInteger(process.env.XIRSYS_ICE_TTL_SECONDS, 60);
+      const trustedPublicIp =
+        process.env.XIRSYS_GEO === "true" ? getTrustedPublicIp(request) : undefined;
+      const iceTtl = parseInteger(process.env.XIRSYS_ICE_TTL_SECONDS, 60);
 
-    const [clientSecret, iceServers, signaling] = await Promise.all([
-      openai.createClientSecret({
-        session,
-        ...(process.env.OPENAI_SAFETY_IDENTIFIER
-          ? { safetyIdentifier: process.env.OPENAI_SAFETY_IDENTIFIER }
-          : {}),
-      }),
-      xirsys.getIceServers({
-        expiresInSeconds: iceTtl,
-        ...(trustedPublicIp ? { userIp: trustedPublicIp } : {}),
-      }),
-      includeSignaling
-        ? xirsys.getSignalingCredentials({ peerId, expiresInSeconds: 120 })
-        : Promise.resolve(undefined),
-    ]);
+      const [clientSecret, iceServers, signaling] = await Promise.all([
+        openai.createClientSecret({ session }),
+        xirsys.getIceServers({
+          expiresInSeconds: iceTtl,
+          ...(trustedPublicIp ? { userIp: trustedPublicIp } : {}),
+        }),
+        includeSignaling
+          ? xirsys.getSignalingCredentials({ peerId, expiresInSeconds: 120 })
+          : Promise.resolve(undefined),
+      ]);
 
-    response.set("Cache-Control", "no-store");
-    response.json({
-      clientSecret: {
-        value: clientSecret.value,
-        ...(clientSecret.expires_at ? { expiresAt: clientSecret.expires_at } : {}),
-      },
-      iceServers,
-      session: {
-        model: session.model,
-        voice: session.audio?.output?.voice,
-      },
-      ...(signaling ? { signaling } : {}),
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+      response.json({
+        clientSecret: {
+          value: clientSecret.value,
+          ...(clientSecret.expires_at ? { expiresAt: clientSecret.expires_at } : {}),
+        },
+        iceServers,
+        session: {
+          model: session.model,
+          voice: session.audio?.output?.voice,
+        },
+        ...(signaling ? { signaling } : {}),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.get("*splat", (_request, response) => {
   response.sendFile(path.join(publicDirectory, "index.html"));
@@ -130,19 +132,13 @@ if (process.env.NODE_ENV !== "test") {
 
 export { app };
 
-function createProviderClients(): {
-  openai: OpenAIRealtimeClient;
-  xirsys: XirsysClient;
-} {
-  return {
-    openai: new OpenAIRealtimeClient({ apiKey: requireEnvironment("OPENAI_API_KEY") }),
-    xirsys: new XirsysClient({
-      ident: requireEnvironment("XIRSYS_IDENT"),
-      secret: requireEnvironment("XIRSYS_SECRET"),
-      channel: requireEnvironment("XIRSYS_CHANNEL"),
-      baseUrl: process.env.XIRSYS_API_BASE ?? "https://global.xirsys.net",
-    }),
-  };
+function createXirsysClient(): XirsysClient {
+  return new XirsysClient({
+    ident: requireEnvironment("XIRSYS_IDENT"),
+    secret: requireEnvironment("XIRSYS_SECRET"),
+    channel: requireEnvironment("XIRSYS_CHANNEL"),
+    baseUrl: process.env.XIRSYS_API_BASE ?? "https://global.xirsys.net",
+  });
 }
 
 function requireEnvironment(name: string): string {
@@ -167,6 +163,30 @@ function normalizeOrigin(value: string | undefined): string | undefined {
     throw new TypeError("PUBLIC_ORIGIN must contain only a scheme and host");
   }
   return url.origin;
+}
+
+function readOpenAIApiKey(request: Request): string {
+  const value = request.body?.openaiApiKey;
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("sk-") ||
+    value.length < 20 ||
+    value.length > 512 ||
+    /\s/.test(value)
+  ) {
+    throw new TypeError("A valid OpenAI API key is required");
+  }
+  return value;
+}
+
+function disableCredentialCaching(
+  _request: Request,
+  response: express.Response,
+  next: express.NextFunction,
+): void {
+  response.set("Cache-Control", "no-store");
+  response.set("Pragma", "no-cache");
+  next();
 }
 
 function enforcePublicOrigin(

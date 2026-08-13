@@ -85,6 +85,31 @@
                 <span id="signaling-state">WebSocket off</span>
               </div>
 
+              <div class="api-key-field">
+                <div class="field-heading">
+                  <label for="openai-api-key">Your OpenAI API key</label>
+                  <span>Required · BYOK</span>
+                </div>
+                <div class="secret-input">
+                  <input
+                    id="openai-api-key"
+                    type="password"
+                    inputmode="text"
+                    autocomplete="new-password"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    aria-describedby="api-key-privacy"
+                    placeholder="sk-proj-…"
+                  />
+                  <button id="toggle-api-key" type="button" aria-label="Show API key">Show</button>
+                </div>
+                <p id="api-key-privacy">
+                  Sent once over HTTPS to mint an ephemeral Realtime token, then
+                  discarded. It is not saved or logged. Use a temporary or
+                  restricted project key and revoke it after testing.
+                </p>
+              </div>
+
               <div class="options">
                 <label>
                   <input id="force-relay" type="checkbox" />
@@ -97,7 +122,7 @@
               </div>
 
               <div class="actions">
-                <button id="connect" class="button accent">Connect microphone</button>
+                <button id="connect" class="button accent" disabled>Connect microphone</button>
                 <button id="disconnect" class="button light" disabled>Disconnect</button>
                 <button id="mute" class="button light" disabled>Mute</button>
               </div>

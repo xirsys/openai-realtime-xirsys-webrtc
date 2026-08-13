@@ -34,8 +34,8 @@ flowchart LR
     X["Xirsys API / TURN"]
     XS["Xirsys Signaling V2"]
 
-    B -- "1. HTTPS bootstrap" --> S
-    S -- "standard API key" --> O
+    B -- "1. BYOK key over HTTPS" --> S
+    S -- "one-time client-secret request" --> O
     S -- "Basic auth" --> X
     S -- "ephemeral secrets + ICE servers" --> B
     B <-->|"WebRTC: audio + oai-events data channel"| O
@@ -49,7 +49,8 @@ flowchart LR
 | Realtime JSON events | WebRTC data channel (`oai-events`) | OpenAI |
 | NAT discovery and media relay | STUN/TURN ICE candidates | Xirsys |
 | Optional browser-to-browser app messages | WebSocket Signaling V2 | Xirsys |
-| Long-lived credentials | Server environment only | Your Node server |
+| Tester OpenAI key | One HTTPS bootstrap request; never persisted | Demo server |
+| Xirsys long-lived credentials | Server environment only | Your Node server |
 
 The Xirsys WebSocket does **not** carry OpenAI audio, OpenAI events, or the SDP
 answer. OpenAI is not a peer in a Xirsys signaling channel. The browser posts its
@@ -73,10 +74,9 @@ npm install
 cp .env.example .env
 ```
 
-Set these required values in `.env`:
+Set these required Xirsys values in `.env`:
 
 ```dotenv
-OPENAI_API_KEY=sk-proj-...
 XIRSYS_IDENT=your-xirsys-ident
 XIRSYS_SECRET=your-xirsys-secret
 XIRSYS_CHANNEL=your-channel-name
@@ -92,7 +92,17 @@ OPENAI_REALTIME_VOICE=marin
 OPENAI_REALTIME_INSTRUCTIONS=You are a concise, friendly voice assistant.
 ```
 
-Never put `OPENAI_API_KEY`, `XIRSYS_IDENT`, or `XIRSYS_SECRET` in browser code.
+The public demo intentionally has no server-side `OPENAI_API_KEY`. Each tester
+enters their own key in a password field. The page sends it once over HTTPS to
+the Node server, which uses it only to mint an ephemeral Realtime token. The key
+is not written to disk, logs, browser storage, cookies, or the URL.
+
+This BYOK flow is a demo-specific trust tradeoff: the tester must trust the page
+and server with their standard key during that exchange. OpenAI's production
+guidance is to keep standard API keys on a trusted backend and return only an
+ephemeral token to the browser. Use a temporary or restricted project key for
+the hosted demo and revoke it afterward. Never expose the server's Xirsys
+credentials to the browser.
 
 ## 2. Run the voice agent
 
@@ -100,15 +110,16 @@ Never put `OPENAI_API_KEY`, `XIRSYS_IDENT`, or `XIRSYS_SECRET` in browser code.
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), select **Connect
-microphone**, grant microphone permission, and speak. The OpenAI server's voice
-activity detection handles turn-taking by default.
+Open [http://localhost:3000](http://localhost:3000), enter an OpenAI API key with
+Realtime access, select **Connect microphone**, grant microphone permission, and
+speak. The OpenAI server's voice activity detection handles turn-taking by
+default.
 
 The connection runs in this order:
 
 1. The browser asks for microphone permission.
-2. `POST /api/bootstrap` asks OpenAI for an ephemeral Realtime client secret and
-   Xirsys for `webrtc=1` ICE servers.
+2. `POST /api/bootstrap` uses the tester's key once to ask OpenAI for an
+   ephemeral Realtime client secret and asks Xirsys for `webrtc=1` ICE servers.
 3. The browser creates `RTCPeerConnection({ iceServers })`, adds its microphone,
    and creates the `oai-events` data channel.
 4. It creates an SDP offer and waits for ICE gathering. This wait is important:
@@ -185,12 +196,13 @@ client.addEventListener("realtime", ({ detail: event }) => {
   console.log(event.type, event);
 });
 
-await client.connect();
+const openaiApiKey = document.querySelector("#openai-api-key").value;
+await client.connect({ openaiApiKey });
 ```
 
 The class exposes:
 
-- `connect({ forceRelay, includeSignaling, peerId })`
+- `connect({ openaiApiKey, forceRelay, includeSignaling, peerId })`
 - `sendEvent(event)` for any supported Realtime client event
 - `sendText(text)` for a text turn followed by `response.create`
 - `setMuted(boolean)`
@@ -254,10 +266,10 @@ that negotiation.
 - Tune `BOOTSTRAP_RATE_LIMIT_MAX` and `BOOTSTRAP_RATE_LIMIT_WINDOW_MS` for your
   traffic. The included limiter is per process and intended for a small demo;
   use a shared rate-limit store when running multiple instances.
-- Add user authentication before exposing `/api/bootstrap` as part of a
-  production application. Origin checks and rate limiting reduce casual abuse
-  but do not replace authentication.
-- Keep both providers' long-lived credentials on the trusted server.
+- Replace this public BYOK input with an authenticated backend-managed OpenAI
+  key in a production application. Standard OpenAI API keys should not normally
+  be entered into or shipped with browser code.
+- Keep Xirsys long-lived credentials on the trusted server.
 - Return `Cache-Control: no-store` for short-lived credentials (already done).
 - Use HTTPS/WSS outside localhost.
 - Derive `OpenAI-Safety-Identifier` from a stable, privacy-preserving backend user
