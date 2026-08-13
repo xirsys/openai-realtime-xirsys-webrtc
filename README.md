@@ -247,9 +247,14 @@ that negotiation.
 
 ## Production checklist
 
-- Authenticate and rate-limit `/api/bootstrap`; the sample leaves auth out so
-  the transport flow is easy to see.
-- Add CSRF/origin controls appropriate to your application.
+- Set `PUBLIC_ORIGIN` to the exact HTTPS origin serving the demo. The sample
+  rejects bootstrap requests from other origins when this is configured.
+- Tune `BOOTSTRAP_RATE_LIMIT_MAX` and `BOOTSTRAP_RATE_LIMIT_WINDOW_MS` for your
+  traffic. The included limiter is per process and intended for a small demo;
+  use a shared rate-limit store when running multiple instances.
+- Add user authentication before exposing `/api/bootstrap` as part of a
+  production application. Origin checks and rate limiting reduce casual abuse
+  but do not replace authentication.
 - Keep both providers' long-lived credentials on the trusted server.
 - Return `Cache-Control: no-store` for short-lived credentials (already done).
 - Use HTTPS/WSS outside localhost.

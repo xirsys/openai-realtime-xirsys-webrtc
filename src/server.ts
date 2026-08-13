@@ -15,6 +15,11 @@ import {
 const app = express();
 const port = parseInteger(process.env.PORT, 3000);
 const publicDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public");
+const publicOrigin = normalizeOrigin(process.env.PUBLIC_ORIGIN);
+const bootstrapRateLimit = createRateLimiter({
+  maxRequests: parseInteger(process.env.BOOTSTRAP_RATE_LIMIT_MAX, 10),
+  windowMs: parseInteger(process.env.BOOTSTRAP_RATE_LIMIT_WINDOW_MS, 60_000),
+});
 
 if (process.env.TRUST_PROXY === "true") {
   // Configure the exact proxy hop count or subnet in production.
@@ -29,7 +34,7 @@ app.get("/api/health", (_request, response) => {
   response.json({ ok: true });
 });
 
-app.post("/api/bootstrap", async (request, response, next) => {
+app.post("/api/bootstrap", enforcePublicOrigin, bootstrapRateLimit, async (request, response, next) => {
   try {
     const { openai, xirsys } = createProviderClients();
     const includeSignaling = request.body?.includeSignaling === true;
@@ -148,8 +153,79 @@ function requireEnvironment(name: string): string {
 function parseInteger(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed)) throw new TypeError(`Expected an integer, received: ${value}`);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new TypeError(`Expected a positive integer, received: ${value}`);
+  }
   return parsed;
+}
+
+function normalizeOrigin(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const url = new URL(value);
+  if (url.pathname !== "/" || url.search || url.hash) {
+    throw new TypeError("PUBLIC_ORIGIN must contain only a scheme and host");
+  }
+  return url.origin;
+}
+
+function enforcePublicOrigin(
+  request: Request,
+  response: express.Response,
+  next: express.NextFunction,
+): void {
+  if (!publicOrigin) {
+    next();
+    return;
+  }
+
+  const requestOrigin = request.get("Origin");
+  if (requestOrigin !== publicOrigin) {
+    response.status(403).json({ error: "Request origin is not allowed" });
+    return;
+  }
+
+  next();
+}
+
+function createRateLimiter({
+  maxRequests,
+  windowMs,
+}: {
+  maxRequests: number;
+  windowMs: number;
+}): express.RequestHandler {
+  const attempts = new Map<string, { count: number; resetAt: number }>();
+
+  return (request, response, next) => {
+    const now = Date.now();
+    const key = request.ip || "unknown";
+    let bucket = attempts.get(key);
+
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = { count: 0, resetAt: now + windowMs };
+      attempts.set(key, bucket);
+    }
+
+    response.set("X-RateLimit-Limit", String(maxRequests));
+    response.set("X-RateLimit-Remaining", String(Math.max(0, maxRequests - bucket.count - 1)));
+    response.set("X-RateLimit-Reset", String(Math.ceil(bucket.resetAt / 1_000)));
+
+    if (bucket.count >= maxRequests) {
+      response.set("Retry-After", String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1_000))));
+      response.status(429).json({ error: "Too many bootstrap requests; try again shortly" });
+      return;
+    }
+
+    bucket.count += 1;
+
+    if (attempts.size > 10_000) {
+      for (const [candidateKey, candidate] of attempts) {
+        if (candidate.resetAt <= now) attempts.delete(candidateKey);
+      }
+    }
+
+    next();
+  };
 }
 
 function getTrustedPublicIp(request: Request): string | undefined {
