@@ -14,6 +14,7 @@ import {
 
 const app = express();
 const port = parseInteger(process.env.PORT, 3000);
+const host = process.env.HOST ?? "0.0.0.0";
 const publicDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public");
 const publicOrigin = normalizeOrigin(process.env.PUBLIC_ORIGIN);
 const bootstrapRateLimit = createRateLimiter({
@@ -122,8 +123,8 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => 
 app.use(errorHandler);
 
 if (process.env.NODE_ENV !== "test") {
-  app.listen(port, () => {
-    console.log(`OpenAI Realtime + Xirsys tutorial: http://localhost:${port}`);
+  app.listen(port, host, () => {
+    console.log(`OpenAI Realtime + Xirsys tutorial: http://${host}:${port}`);
   });
 }
 
