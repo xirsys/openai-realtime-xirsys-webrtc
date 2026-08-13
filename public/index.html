@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="OpenAI Realtime voice over WebRTC with Xirsys TURN" />
+    <title>OpenAI Realtime Voice Demo · Xirsys</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <nav class="nav" aria-label="Main navigation">
+        <div class="nav-inner">
+          <a class="brand" href="https://xirsys.com" aria-label="Xirsys home">
+            <img src="/xirsys-wordmark-black.svg" alt="Xirsys" />
+          </a>
+          <div class="nav-links">
+            <a href="https://docs.xirsys.com/xirsys-api.md">Docs</a>
+            <a href="https://developers.openai.com/api/docs/guides/realtime-webrtc">WebRTC guide</a>
+            <a href="https://github.com/xirsys/openai-realtime-xirsys-webrtc">GitHub</a>
+            <a href="#architecture">Architecture</a>
+          </div>
+          <div class="nav-actions">
+            <span class="nav-label">Realtime voice demo</span>
+            <a class="button nav-button" href="https://dashboard.xirsys.com">Dashboard</a>
+          </div>
+        </div>
+      </nav>
+
+      <main>
+        <section class="hero">
+          <div class="wrap hero-grid">
+            <div class="hero-copy-block">
+              <p class="eyebrow">Xirsys × OpenAI Realtime</p>
+              <h1>Natural voice. Reliable WebRTC.</h1>
+              <p class="hero-copy">
+                Talk to an OpenAI voice agent with low-latency WebRTC audio.
+                Xirsys supplies the STUN and TURN infrastructure that keeps the
+                session reachable across difficult networks.
+              </p>
+
+              <div class="hero-actions">
+                <a class="button" href="https://github.com/xirsys/openai-realtime-xirsys-webrtc">
+                  View SDK on GitHub
+                </a>
+                <a class="button light" href="https://github.com/xirsys/openai-realtime-xirsys-webrtc#readme">
+                  Read the tutorial
+                </a>
+              </div>
+
+              <div class="transport-summary" aria-label="Connection summary">
+                <div>
+                  <strong>WebRTC</strong>
+                  <span>Live audio</span>
+                </div>
+                <div>
+                  <strong>STUN/TURN</strong>
+                  <span>NAT traversal</span>
+                </div>
+                <div>
+                  <strong>Data channel</strong>
+                  <span>Agent events</span>
+                </div>
+              </div>
+            </div>
+
+            <section class="console" aria-labelledby="voice-session-title">
+              <div class="console-header">
+                <div>
+                  <p class="eyebrow">Voice session</p>
+                  <h2 id="voice-session-title"><span id="model">Ready to connect</span></h2>
+                </div>
+                <div id="status" class="status" aria-live="polite">idle</div>
+              </div>
+
+              <div class="connection-meta" aria-label="Connection details">
+                <span id="ice-route">ICE not connected</span>
+                <span id="signaling-state">WebSocket off</span>
+              </div>
+
+              <div class="options">
+                <label>
+                  <input id="force-relay" type="checkbox" />
+                  <span>Force TURN relay <small>Diagnostic</small></span>
+                </label>
+                <label>
+                  <input id="use-signaling" type="checkbox" />
+                  <span>Xirsys WebSocket <small>Optional</small></span>
+                </label>
+              </div>
+
+              <div class="actions">
+                <button id="connect" class="button accent">Connect microphone</button>
+                <button id="disconnect" class="button light" disabled>Disconnect</button>
+                <button id="mute" class="button light" disabled>Mute</button>
+              </div>
+
+              <audio id="remote-audio" autoplay controls></audio>
+
+              <div class="text-turn">
+                <label class="sr-only" for="text-message">Send a text turn</label>
+                <input
+                  id="text-message"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Send a text turn over the data channel"
+                />
+                <button id="send" class="button" disabled>Send</button>
+              </div>
+
+              <details>
+                <summary>Connection events</summary>
+                <div id="event-log" class="event-log" aria-live="polite"></div>
+              </details>
+            </section>
+          </div>
+        </section>
+
+        <section id="architecture" class="architecture-section">
+          <div class="wrap">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">One realtime session</p>
+                <h2>Each transport has one clear job.</h2>
+              </div>
+              <p class="section-copy">
+                The browser connects directly to OpenAI for media and agent events.
+                Xirsys handles the network path, providing a relay only when a direct
+                connection cannot make it through.
+              </p>
+            </div>
+
+            <div class="transport-grid" aria-label="Transport architecture">
+              <article>
+                <div class="card-number">01</div>
+                <p class="eyebrow">Media path</p>
+                <h3>OpenAI WebRTC audio</h3>
+                <p>Encrypted microphone input and synthesized agent speech flow as WebRTC media.</p>
+              </article>
+              <article>
+                <div class="card-number">02</div>
+                <p class="eyebrow">Network path</p>
+                <h3>Xirsys NAT traversal</h3>
+                <p>Short-lived STUN/TURN credentials supply host, reflexive, and relay candidates.</p>
+              </article>
+              <article>
+                <div class="card-number">03</div>
+                <p class="eyebrow">Control path</p>
+                <h3>Realtime data channel</h3>
+                <p>OpenAI JSON events travel over the <code>oai-events</code> WebRTC data channel.</p>
+              </article>
+            </div>
+
+            <aside>
+              <span class="aside-mark" aria-hidden="true">i</span>
+              <p>
+                <strong>About the optional WebSocket:</strong> Xirsys Signaling V2 is
+                included here as an application message channel. OpenAI audio and
+                Realtime events never use that socket.
+              </p>
+            </aside>
+          </div>
+        </section>
+
+        <section class="source-section">
+          <div class="wrap source-panel">
+            <div>
+              <p class="eyebrow">Open source SDK</p>
+              <h2>Clone it. Configure it. Ship voice.</h2>
+              <p>
+                The complete TypeScript server SDK, browser WebRTC client, demo,
+                tests, and implementation guide are available under the MIT license.
+              </p>
+            </div>
+            <div class="source-actions">
+              <code>git clone https://github.com/xirsys/openai-realtime-xirsys-webrtc.git</code>
+              <a class="button accent" href="https://github.com/xirsys/openai-realtime-xirsys-webrtc">
+                Browse the repository →
+              </a>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div class="wrap footer-inner">
+          <a href="https://xirsys.com" aria-label="Xirsys home">
+            <img src="/xirsys-wordmark-black.svg" alt="Xirsys" />
+          </a>
+          <p>Production-grade TURN infrastructure for WebRTC applications and AI voice agents.</p>
+          <div class="footer-links">
+            <a href="https://github.com/xirsys/openai-realtime-xirsys-webrtc">GitHub</a>
+            <a href="https://docs.xirsys.com">Documentation →</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,55 @@
+{
+  "name": "@xirsys/openai-realtime-webrtc",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WebRTC-only OpenAI Realtime voice tutorial with Xirsys STUN/TURN and optional signaling.",
+  "license": "MIT",
+  "homepage": "https://github.com/xirsys/openai-realtime-xirsys-webrtc#readme",
+  "bugs": {
+    "url": "https://github.com/xirsys/openai-realtime-xirsys-webrtc/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xirsys/openai-realtime-xirsys-webrtc.git"
+  },
+  "files": [
+    "dist/sdk",
+    "public/sdk",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/sdk/index.js",
+  "types": "./dist/sdk/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js"
+    },
+    "./browser": "./public/sdk/realtime-voice.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "start": "node dist/server.js",
+    "test": "tsx --test test/**/*.test.ts",
+    "check:client": "node --check public/sdk/realtime-voice.js && node --check public/app.js",
+    "check": "npm run build && npm run check:client && npm test"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
