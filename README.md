@@ -168,15 +168,31 @@ const xirsys = new XirsysClient({
   channel: process.env.XIRSYS_CHANNEL!,
 });
 
+// Derive this from your server's request context or trusted proxy chain.
+// Never accept an arbitrary IP address from the browser request body.
+const trustedEndUserPublicIp = getTrustedPublicIp(request);
+
 const iceServers = await xirsys.getIceServers({
   expiresInSeconds: 60,
+  ...(trustedEndUserPublicIp ? { userIp: trustedEndUserPublicIp } : {}),
 });
 ```
 
-The SDK calls `PUT /_turn/{channel}?webrtc=1&expire=60`, checks both the HTTP
-status and Xirsys response envelope, and returns the array ready for
-`RTCPeerConnection`. Xirsys's credential lifetime controls how long a new TURN
-allocation can authenticate; it does not impose a 60-second call limit.
+The SDK requests Xirsys's standardized WebRTC response with `webrtc=1`, checks
+both the HTTP status and response envelope, and returns the resulting array ready
+for `RTCPeerConnection`. When `userIp` is present, it sends the two fields
+required for end-user geo routing:
+
+```text
+PUT /_turn/{channel}?webrtc=1&expire=60&geo=1
+{"user_ip":"<trusted-public-ip>"}
+```
+
+`webrtc=1` returns the standard ICE server array, so the older `format=urls`
+parameter is not needed. Omit `userIp` to use normal Xirsys TURN routing. The SDK
+rejects non-public IP addresses instead of sending an ineffective or unsafe geo
+hint. Xirsys's credential lifetime controls how long a new TURN allocation can
+authenticate; it does not impose a 60-second call limit.
 
 Geo-routing is opt-in with `XIRSYS_GEO=true`. The sample only forwards a public
 IP derived from Express's trusted request context; it never accepts an arbitrary
@@ -323,6 +339,7 @@ test/                        mocked provider-client tests
 
 - [OpenAI: Voice agents](https://developers.openai.com/api/docs/guides/voice-agents)
 - [OpenAI: Realtime API with WebRTC](https://developers.openai.com/api/docs/guides/realtime-webrtc)
+- [Xirsys TURN API and geo routing](https://docs.xirsys.com/?pg=api-turn)
 - [Xirsys API quick reference](https://docs.xirsys.com/xirsys-api.md)
 - [Xirsys API introduction](https://docs.xirsys.com/api/introduction)
 

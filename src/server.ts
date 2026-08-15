@@ -1,7 +1,6 @@
 import "dotenv/config";
 
 import express, { type ErrorRequestHandler, type Request } from "express";
-import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +8,7 @@ import {
   OpenAIRealtimeClient,
   UpstreamApiError,
   XirsysClient,
+  isPublicIpAddress,
   type RealtimeSessionConfig,
 } from "./sdk/index.js";
 
@@ -251,41 +251,6 @@ function createRateLimiter({
 
 function getTrustedPublicIp(request: Request): string | undefined {
   const value = request.ip?.replace(/^::ffff:/, "");
-  if (!value || !isPublicIp(value)) return undefined;
+  if (!value || !isPublicIpAddress(value)) return undefined;
   return value;
-}
-
-function isPublicIp(value: string): boolean {
-  const version = isIP(value);
-  if (version === 4) {
-    const parts = value.split(".").map(Number);
-    const [a = 0, b = 0] = parts;
-    return !(
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 192 && b === 0) ||
-      (a === 198 && (b === 18 || b === 19 || b === 51)) ||
-      (a === 203 && b === 0) ||
-      a >= 224
-    );
-  }
-
-  if (version === 6) {
-    const normalized = value.toLowerCase();
-    return !(
-      normalized === "::" ||
-      normalized === "::1" ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      /^fe[89ab]/.test(normalized) ||
-      normalized.startsWith("2001:db8:")
-    );
-  }
-
-  return false;
 }

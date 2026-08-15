@@ -1,3 +1,5 @@
+import { BlockList, isIP } from "node:net";
+
 import { UpstreamApiError, parseResponseBody } from "./errors.js";
 
 export interface IceServer {
@@ -16,7 +18,12 @@ export interface XirsysClientOptions {
 
 export interface IceCredentialOptions {
   expiresInSeconds?: number;
-  /** Trusted end-user public IP, used only with Xirsys geo routing. */
+  /**
+   * Trusted end-user public IP. When present, the SDK enables Xirsys geo
+   * routing with both `geo=1` and the required `user_ip` request field.
+   * Derive this server-side from trusted request context; never accept an
+   * arbitrary browser-supplied value.
+   */
   userIp?: string;
 }
 
@@ -61,15 +68,19 @@ export class XirsysClient {
       webrtc: "1",
       expire: String(expiresInSeconds),
     });
+    const userIp = options.userIp;
     const headers: Record<string, string> = {
       Authorization: this.#authorization,
     };
     let body: string | undefined;
 
-    if (options.userIp) {
+    if (userIp !== undefined) {
+      if (!isPublicIpAddress(userIp)) {
+        throw new TypeError("userIp must be a valid public IPv4 or IPv6 address");
+      }
       params.set("geo", "1");
       headers["Content-Type"] = "application/json";
-      body = JSON.stringify({ user_ip: options.userIp });
+      body = JSON.stringify({ user_ip: userIp });
     }
 
     const response = await this.#fetch(
@@ -81,7 +92,12 @@ export class XirsysClient {
       },
     );
     const envelope = await this.#readEnvelope(response, "TURN credential");
-    const iceServers = getRecord(envelope.v)?.iceServers;
+    const iceServerValue = getRecord(envelope.v)?.iceServers;
+    const iceServers = Array.isArray(iceServerValue)
+      ? iceServerValue
+      : isIceServer(iceServerValue)
+        ? [iceServerValue]
+        : undefined;
 
     if (!Array.isArray(iceServers) || !iceServers.every(isIceServer)) {
       throw new UpstreamApiError(
@@ -183,3 +199,63 @@ function isIceServer(value: unknown): value is IceServer {
     (Array.isArray(urls) && urls.length > 0 && urls.every((url) => typeof url === "string"))
   );
 }
+
+/**
+ * Returns whether an address is suitable as a Xirsys end-user geo hint.
+ * This validates address scope only; callers must still establish the IP's
+ * trustworthiness from their server or trusted proxy configuration.
+ */
+export function isPublicIpAddress(value: string): boolean {
+  const version = isIP(value);
+  if (version === 4) return !nonPublicIpv4Ranges.check(value, "ipv4");
+  if (version === 6) return !nonPublicIpv6Ranges.check(value, "ipv6");
+  return false;
+}
+
+function createNonPublicIpv4Ranges(): BlockList {
+  const ranges = new BlockList();
+
+  for (const [network, prefix] of [
+    ["0.0.0.0", 8],
+    ["10.0.0.0", 8],
+    ["100.64.0.0", 10],
+    ["127.0.0.0", 8],
+    ["169.254.0.0", 16],
+    ["172.16.0.0", 12],
+    ["192.0.0.0", 24],
+    ["192.0.2.0", 24],
+    ["192.88.99.0", 24],
+    ["192.168.0.0", 16],
+    ["198.18.0.0", 15],
+    ["198.51.100.0", 24],
+    ["203.0.113.0", 24],
+    ["224.0.0.0", 4],
+    ["240.0.0.0", 4],
+  ] as const) {
+    ranges.addSubnet(network, prefix, "ipv4");
+  }
+
+  return ranges;
+}
+
+function createNonPublicIpv6Ranges(): BlockList {
+  const ranges = new BlockList();
+
+  for (const [network, prefix] of [
+    ["::", 128],
+    ["::1", 128],
+    ["::ffff:0.0.0.0", 96],
+    ["100::", 64],
+    ["2001:db8::", 32],
+    ["fc00::", 7],
+    ["fe80::", 10],
+    ["ff00::", 8],
+  ] as const) {
+    ranges.addSubnet(network, prefix, "ipv6");
+  }
+
+  return ranges;
+}
+
+const nonPublicIpv4Ranges = createNonPublicIpv4Ranges();
+const nonPublicIpv6Ranges = createNonPublicIpv6Ranges();
