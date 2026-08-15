@@ -5,7 +5,8 @@ import test from "node:test";
 test("the bootstrap endpoint requires and transiently uses a tester API key", async (t) => {
   process.env.NODE_ENV = "test";
   process.env.PUBLIC_ORIGIN = "";
-  process.env.TRUST_PROXY = "false";
+  process.env.TRUST_PROXY = "true";
+  process.env.XIRSYS_GEO = "true";
   process.env.XIRSYS_IDENT = "test-ident";
   process.env.XIRSYS_SECRET = "test-secret";
   process.env.XIRSYS_CHANNEL = "test-channel";
@@ -36,6 +37,8 @@ test("the bootstrap endpoint requires and transiently uses a tester API key", as
 
   const testerKey = "sk-proj-test-key-that-is-long-enough";
   let authorization = "";
+  let turnRequestUrl = "";
+  let turnRequestInit: RequestInit | undefined;
   globalThis.fetch = (async (input, init) => {
     const url = String(input);
     if (url === "https://api.openai.com/v1/realtime/client_secrets") {
@@ -43,6 +46,8 @@ test("the bootstrap endpoint requires and transiently uses a tester API key", as
       return Response.json({ value: "ek_test", expires_at: 12345 });
     }
     if (url.startsWith("https://xirsys.example/_turn/")) {
+      turnRequestUrl = url;
+      turnRequestInit = init;
       return Response.json({
         s: "ok",
         v: { iceServers: [{ urls: ["stun:turn.example"] }] },
@@ -56,7 +61,10 @@ test("the bootstrap endpoint requires and transiently uses a tester API key", as
 
   const response = await nativeFetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": "8.8.8.8",
+    },
     body: JSON.stringify({ openaiApiKey: testerKey }),
   });
   const responseText = await response.text();
@@ -68,4 +76,8 @@ test("the bootstrap endpoint requires and transiently uses a tester API key", as
   const body = JSON.parse(responseText);
   assert.equal(body.clientSecret.value, "ek_test");
   assert.equal(body.iceServers.length, 1);
+  const turnUrl = new URL(turnRequestUrl);
+  assert.equal(turnUrl.searchParams.get("webrtc"), "1");
+  assert.equal(turnUrl.searchParams.get("geo"), "1");
+  assert.deepEqual(JSON.parse(String(turnRequestInit?.body)), { user_ip: "8.8.8.8" });
 });

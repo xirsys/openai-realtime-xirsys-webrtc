@@ -30,14 +30,61 @@ test("XirsysClient returns WebRTC ICE servers and sends geo hints securely", asy
   });
 
   assert.equal(servers[0]?.username, "temporary-user");
-  assert.match(requestUrl, /\/_turn\/voice%20demo\?/);
-  assert.match(requestUrl, /webrtc=1/);
-  assert.match(requestUrl, /expire=90/);
-  assert.match(requestUrl, /geo=1/);
+  const url = new URL(requestUrl);
+  assert.equal(url.pathname, "/_turn/voice%20demo");
+  assert.equal(url.searchParams.get("webrtc"), "1");
+  assert.equal(url.searchParams.get("expire"), "90");
+  assert.equal(url.searchParams.get("geo"), "1");
   assert.equal(requestInit?.method, "PUT");
   assert.deepEqual(JSON.parse(String(requestInit?.body)), { user_ip: "8.8.8.8" });
   const headers = requestInit?.headers as Record<string, string>;
   assert.equal(headers.Authorization, `Basic ${Buffer.from("ident:secret").toString("base64")}`);
+  assert.equal(headers["Content-Type"], "application/json");
+});
+
+test("XirsysClient requests the standard WebRTC array without geo by default", async () => {
+  let requestUrl = "";
+  let requestInit: RequestInit | undefined;
+  const client = createClient((async (url, init) => {
+    requestUrl = String(url);
+    requestInit = init;
+    return Response.json({
+      s: "ok",
+      v: { iceServers: [{ urls: "stun:turn.example" }] },
+    });
+  }) as typeof fetch);
+
+  const servers = await client.getIceServers();
+
+  assert.equal(servers.length, 1);
+  assert.equal(servers[0]?.urls, "stun:turn.example");
+  const url = new URL(requestUrl);
+  assert.equal(url.searchParams.get("webrtc"), "1");
+  assert.equal(url.searchParams.has("geo"), false);
+  assert.equal(requestInit?.body, undefined);
+  assert.equal(
+    (requestInit?.headers as Record<string, string>)["Content-Type"],
+    undefined,
+  );
+});
+
+test("XirsysClient rejects non-public geo hints before calling Xirsys", async () => {
+  const client = createClient((async () => {
+    throw new Error("fetch should not be called");
+  }) as typeof fetch);
+
+  await assert.rejects(
+    () => client.getIceServers({ userIp: "192.168.1.10" }),
+    /valid public IPv4 or IPv6 address/,
+  );
+  await assert.rejects(
+    () => client.getIceServers({ userIp: "0:0:0:0:0:0:0:1" }),
+    /valid public IPv4 or IPv6 address/,
+  );
+  await assert.rejects(
+    () => client.getIceServers({ userIp: "::ffff:192.168.1.10" }),
+    /valid public IPv4 or IPv6 address/,
+  );
 });
 
 test("XirsysClient creates an encoded Signaling V2 WebSocket URL", async () => {
